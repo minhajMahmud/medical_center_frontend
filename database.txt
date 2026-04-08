@@ -1,0 +1,288 @@
+BEGIN;
+
+-- =========================
+-- 1) ENUM TYPES
+-- =========================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
+    CREATE TYPE user_role AS ENUM (
+      'student',
+      'teacher',
+      'staff',
+      'outside',
+      'doctor',
+      'dispenser',
+      'labstaff',
+      'admin',
+      'lab'
+    );
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'roster_user_role') THEN
+    CREATE TYPE roster_user_role AS ENUM ('DOCTOR','NURSE','STAFF');
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'shift_type') THEN
+    CREATE TYPE shift_type AS ENUM ('MORNING','AFTERNOON','NIGHT');
+  END IF;
+END
+$$;
+
+-- =========================
+-- 2) USERS + PROFILE
+-- =========================
+CREATE TABLE IF NOT EXISTS users (
+  user_id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  phone TEXT UNIQUE,
+  role user_role NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  profile_picture_url TEXT,
+  email_otp_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS patient_profiles (
+  user_id INT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+  blood_group TEXT,
+  date_of_birth DATE,
+  gender TEXT
+);
+
+CREATE TABLE IF NOT EXISTS staff_profiles (
+  user_id INT PRIMARY KEY REFERENCES users(user_id) ON DELETE CASCADE,
+  designation TEXT,
+  qualification TEXT,
+  signature_url TEXT
+);
+
+-- =========================
+-- 3) NOTIFICATIONS + AUDIT
+-- =========================
+CREATE TABLE IF NOT EXISTS notifications (
+  notification_id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  audit_id SERIAL PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_id TEXT,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =========================
+-- 4) INVENTORY
+-- =========================
+CREATE TABLE IF NOT EXISTS inventory_category (
+  category_id SERIAL PRIMARY KEY,
+  category_name TEXT NOT NULL UNIQUE,
+  description TEXT
+);
+
+CREATE TABLE IF NOT EXISTS inventory_item (
+  item_id SERIAL PRIMARY KEY,
+  category_id INT NOT NULL REFERENCES inventory_category(category_id),
+  item_name TEXT NOT NULL,
+  unit TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS inventory_stock (
+  item_id INT PRIMARY KEY REFERENCES inventory_item(item_id) ON DELETE CASCADE,
+  current_quantity INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS inventory_transaction (
+  transaction_id SERIAL PRIMARY KEY,
+  item_id INT NOT NULL REFERENCES inventory_item(item_id),
+  transaction_type TEXT NOT NULL, -- IN / OUT / ADJUST
+  quantity INT NOT NULL,
+  reason TEXT,
+  changed_by INT REFERENCES users(user_id),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS inventory_audit_log (
+  audit_id SERIAL PRIMARY KEY,
+  item_id INT REFERENCES inventory_item(item_id),
+  old_quantity INT,
+  new_quantity INT,
+  changed_by INT REFERENCES users(user_id),
+  action TEXT,
+  changed_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =========================
+-- 5) LAB / TEST
+-- =========================
+CREATE TABLE IF NOT EXISTS lab_tests (
+  test_id SERIAL PRIMARY KEY,
+  test_name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  student_fee NUMERIC(10,2) DEFAULT 0,
+  teacher_fee NUMERIC(10,2) DEFAULT 0,
+  outside_fee NUMERIC(10,2) DEFAULT 0,
+  available BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS test_results (
+  result_id SERIAL PRIMARY KEY,
+  test_id INT REFERENCES lab_tests(test_id),
+  patient_name TEXT,
+  mobile_number TEXT,
+  patient_type TEXT, -- STUDENT/STAFF/OUTSIDE (legacy text used in report queries)
+  is_uploaded BOOLEAN DEFAULT FALSE,
+  attachment_path TEXT,
+  submitted_at TIMESTAMP,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =========================
+-- 6) PRESCRIPTION / DISPENSE
+-- =========================
+CREATE TABLE IF NOT EXISTS prescriptions (
+  prescription_id SERIAL PRIMARY KEY,
+  patient_id INT NOT NULL REFERENCES users(user_id),
+  doctor_id INT NOT NULL REFERENCES users(user_id),
+  name TEXT,
+  age INT,
+  mobile_number TEXT,
+  gender TEXT,
+  prescription_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  cc TEXT,
+  oe TEXT,
+  bp TEXT,
+  temperature TEXT,
+  advice TEXT,
+  test TEXT,
+  next_visit TEXT,
+  is_outside BOOLEAN DEFAULT FALSE,
+  revised_from_id INT REFERENCES prescriptions(prescription_id),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS prescribed_items (
+  item_id SERIAL PRIMARY KEY,
+  prescription_id INT NOT NULL REFERENCES prescriptions(prescription_id) ON DELETE CASCADE,
+  medicine_name TEXT NOT NULL,
+  dosage_times TEXT,
+  meal_timing TEXT,
+  duration INT,
+  item_id_ref INT NULL REFERENCES inventory_item(item_id)
+);
+
+CREATE TABLE IF NOT EXISTS prescription_dispense (
+  dispense_id SERIAL PRIMARY KEY,
+  prescription_id INT NOT NULL REFERENCES prescriptions(prescription_id) ON DELETE CASCADE,
+  dispenser_id INT REFERENCES users(user_id),
+  status TEXT DEFAULT 'PENDING',
+  dispensed_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS dispensed_items (
+  dispensed_item_id SERIAL PRIMARY KEY,
+  dispense_id INT NOT NULL REFERENCES prescription_dispense(dispense_id) ON DELETE CASCADE,
+  item_id INT REFERENCES inventory_item(item_id),
+  medicine_name TEXT,
+  quantity INT NOT NULL DEFAULT 0
+);
+
+-- =========================
+-- 7) PATIENT UPLOAD REPORTS
+-- =========================
+CREATE TABLE IF NOT EXISTS "UploadpatientR" (
+  report_id SERIAL PRIMARY KEY,
+  patient_id INT NOT NULL REFERENCES users(user_id),
+  type TEXT NOT NULL,
+  report_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  file_path TEXT NOT NULL,
+  prescribed_doctor_id INT REFERENCES users(user_id),
+  prescription_id INT REFERENCES prescriptions(prescription_id),
+  uploaded_by INT REFERENCES users(user_id),
+  reviewed BOOLEAN NOT NULL DEFAULT FALSE,
+  doctor_notes TEXT,
+  visible_to_patient BOOLEAN NOT NULL DEFAULT FALSE,
+  review_action TEXT,
+  reviewed_at TIMESTAMP,
+  reviewed_by INT REFERENCES users(user_id),
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+-- =========================
+-- 8) APPOINTMENTS
+-- =========================
+CREATE TABLE IF NOT EXISTS appointment_requests (
+  request_id SERIAL PRIMARY KEY,
+  patient_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  doctor_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  appointment_date DATE NOT NULL,
+  appointment_time TIME WITHOUT TIME ZONE NOT NULL,
+  reason TEXT NOT NULL,
+  notes TEXT,
+  mode TEXT NOT NULL DEFAULT 'In-Person',
+  is_urgent BOOLEAN NOT NULL DEFAULT FALSE,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  decline_reason TEXT,
+  created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT NOW(),
+  acted_at TIMESTAMP WITHOUT TIME ZONE,
+  CONSTRAINT appointment_requests_status_check
+    CHECK (status IN ('PENDING', 'CONFIRMED', 'DECLINED')),
+  CONSTRAINT appointment_requests_mode_check
+    CHECK (mode IN ('In-Person', 'Video', 'Phone'))
+);
+
+-- =========================
+-- 9) ROSTER + AMBULANCE
+-- =========================
+CREATE TABLE IF NOT EXISTS staff_roster (
+  roster_id BIGSERIAL PRIMARY KEY,
+  staff_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  staff_name VARCHAR(100) NOT NULL,
+  staff_role roster_user_role NOT NULL,
+  shift_date DATE NOT NULL,
+  shift shift_type NOT NULL,
+  is_deleted BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (staff_id, shift_date, shift)
+);
+
+CREATE TABLE IF NOT EXISTS ambulance_contact (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  phone_bn TEXT,
+  phone_en TEXT,
+  is_primary BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Helpful indexes
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_prescriptions_patient ON prescriptions(patient_id, prescription_date DESC);
+CREATE INDEX IF NOT EXISTS idx_test_results_created ON test_results(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_uploadpatientr_patient ON "UploadpatientR"(patient_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_appointment_requests_doctor_status_date ON appointment_requests (doctor_id, status, appointment_date, appointment_time);
+CREATE INDEX IF NOT EXISTS idx_appointment_requests_patient_created ON appointment_requests (patient_id, created_at DESC);
+
+COMMIT;

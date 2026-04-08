@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "2": {
+      "Name": "NSTU-backend",
+      "Group": "Servers",
+      "Host": "host.docker.internal",
+      "Port": 8090,
+      "MaintenanceDB": "nstumedical",
+      "Username": "postgres",
+      "SSLMode": "prefer"
+    }
+  }
+}
