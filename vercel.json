@@ -1,0 +1,11 @@
+{
+  "installCommand": "if [ ! -d .flutter ]; then git clone https://github.com/flutter/flutter.git --depth 1 -b stable .flutter; fi; ./.flutter/bin/flutter config --no-analytics; ./.flutter/bin/flutter pub get",
+  "buildCommand": "SERVERPOD_URL=${SERVERPOD_URL:-https://medicalcenterbackend-production.up.railway.app/}; ./.flutter/bin/flutter build web --release --dart-define=SERVERPOD_URL=$SERVERPOD_URL",
+  "outputDirectory": "build/web",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

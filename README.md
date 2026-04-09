@@ -75,6 +75,36 @@ Build output:
 
 ---
 
+## Deploy Frontend to Vercel (Railway Backend)
+
+This frontend reads backend URL from compile-time define:
+
+- `SERVERPOD_URL`
+
+### 1) Build Flutter web with your Railway API URL
+
+Use your Railway backend public URL (must end with `/`), for example:
+
+- `https://your-backend.up.railway.app/`
+
+Build:
+
+- `flutter build web --release --dart-define=SERVERPOD_URL=https://your-backend.up.railway.app/`
+
+### 2) Deploy the generated static output to Vercel
+
+Deploy folder:
+
+- `build/web`
+
+### 3) Verify frontend → backend connection
+
+- Open deployed Vercel URL.
+- Login and call any API-backed screen.
+- If connection fails, ensure your Railway backend allows CORS for the Vercel domain and `SERVERPOD_URL` is correct.
+
+---
+
 ## Android App Setup (Root Flutter App)
 
 From repository root:
@@ -114,6 +144,7 @@ Examples:
 - **Port 8080/8081/8082 already in use:** stop previous backend process, then rerun.
 - **Push rejected (non-fast-forward):** fetch + rebase, then push.
 - **Cannot connect to backend:** verify `SERVERPOD_URL` and network route.
+- **Vercel build says `flutter: command not found`:** keep root `vercel.json` committed so Vercel installs Flutter before running `flutter pub get` / `flutter build web`.
 - **Generated model mismatch errors:** regenerate Serverpod code and run dependency sync again.
 
 ---
