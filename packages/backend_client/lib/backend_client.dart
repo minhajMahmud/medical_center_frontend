@@ -1,6 +1,7 @@
 export 'src/protocol/protocol.dart';
 export 'package:serverpod_client/serverpod_client.dart';
 import 'package:backend_client/backend_client.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Cross-platform auth key storage.
@@ -43,11 +44,43 @@ class PrefsAuthenticationKeyManager extends AuthenticationKeyManager {
 late Client client;
 late PrefsAuthenticationKeyManager authKeyManager;
 
+const _defaultProductionUrl =
+    'https://medicalcenterbackend-production.up.railway.app/';
+
+String _normalizeServerUrl(String raw) {
+  var url = raw.trim();
+  if (url.isEmpty) return _defaultProductionUrl;
+
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://$url';
+  }
+
+  if (!url.endsWith('/')) {
+    url = '$url/';
+  }
+
+  return url;
+}
+
+bool _isLocalDevUrl(String url) {
+  final u = url.toLowerCase();
+  return u.contains('localhost') ||
+      u.contains('127.0.0.1') ||
+      u.contains('0.0.0.0');
+}
+
 void initServerpodClient() {
-  const serverUrl = String.fromEnvironment(
+  const configuredServerUrl = String.fromEnvironment(
     'SERVERPOD_URL',
-    defaultValue: 'http://localhost:8080/',
+    defaultValue: _defaultProductionUrl,
   );
+
+  var serverUrl = _normalizeServerUrl(configuredServerUrl);
+
+  if (kReleaseMode && _isLocalDevUrl(serverUrl)) {
+    // Safety net: release builds should never point to localhost.
+    serverUrl = _defaultProductionUrl;
+  }
 
   authKeyManager = PrefsAuthenticationKeyManager();
   client = Client(

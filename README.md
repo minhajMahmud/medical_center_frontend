@@ -144,6 +144,7 @@ Examples:
 - **Port 8080/8081/8082 already in use:** stop previous backend process, then rerun.
 - **Push rejected (non-fast-forward):** fetch + rebase, then push.
 - **Cannot connect to backend:** verify `SERVERPOD_URL` and network route.
+- **APK build fails with `25.0.1` / Kotlin `JavaVersion.parse` error:** use **JDK 17 or JDK 21** for Android builds (avoid JDK 25 for this project/toolchain).
 - **Vercel build says `flutter: command not found`:** keep root `vercel.json` committed so Vercel installs Flutter before running `flutter pub get` / `flutter build web`.
 - **Generated model mismatch errors:** regenerate Serverpod code and run dependency sync again.
 
